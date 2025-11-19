@@ -1,48 +1,78 @@
 """
-Database Schemas
+Rail Operations Schemas
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+Each class defines a MongoDB collection (lowercase class name).
 """
-
+from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict, Literal
+from datetime import datetime
 
-# Example schemas (replace with your own):
+# Core domain
+class Section(BaseModel):
+    id: str = Field(..., description="Unique section identifier (e.g., S12)")
+    name: str = Field(..., description="Human-friendly name")
+    length_km: float = Field(..., ge=0)
+    single_track: bool = Field(True)
+    max_speed_kmh: float = Field(120, ge=10)
+    crossing_loops: List[str] = Field(default_factory=list, description="Station/loop ids available for crossing")
 
-class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+class Train(BaseModel):
+    id: str = Field(..., description="Train ID")
+    service_type: Literal["passenger", "freight", "maintenance"] = "passenger"
+    priority: int = Field(5, ge=1, le=10, description="Higher = more priority")
+    length_m: Optional[int] = None
+    max_speed_kmh: Optional[float] = None
+    origin: str
+    destination: str
+    planned_departure: datetime
+    planned_arrival: Optional[datetime] = None
+    route: List[str] = Field(..., description="Ordered list of section ids")
+    status: Literal["scheduled", "running", "delayed", "completed", "cancelled"] = "scheduled"
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+class Incident(BaseModel):
+    id: str
+    type: Literal["block", "speed_restriction", "weather", "signal_failure", "rolling_stock"]
+    section_id: Optional[str] = None
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    details: Dict = Field(default_factory=dict)
 
-# Add your own schemas here:
-# --------------------------------------------------
+class ScheduleLeg(BaseModel):
+    train_id: str
+    section_id: str
+    enter_time: datetime
+    exit_time: datetime
+    meet_pass_at: Optional[str] = None  # loop/station id
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class Schedule(BaseModel):
+    scenario_id: Optional[str] = None
+    legs: List[ScheduleLeg]
+    objective: Dict = Field(default_factory=dict)  # KPIs like total_delay, throughput
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# What-if and scenarios
+class Scenario(BaseModel):
+    id: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    trains: List[Train]
+    incidents: List[Incident] = Field(default_factory=list)
+    overrides: Dict = Field(default_factory=dict)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Audit and KPIs
+class AuditEvent(BaseModel):
+    action: str
+    actor: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    payload: Dict = Field(default_factory=dict)
+
+class KPIReport(BaseModel):
+    time_range: Dict
+    punctuality: float
+    avg_delay_min: float
+    throughput_trains: int
+    section_utilization: Dict[str, float] = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
